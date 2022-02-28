@@ -1,0 +1,8 @@
+# Device Specific Scripts
+scripts/
+
+# Config Files
+config.json
+
+# Dependencies
+node_modules/

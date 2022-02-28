@@ -1,0 +1,22 @@
+{
+    "name": "remote-controller",
+    "version": "1.0.0",
+    "description": "Remote Device Controller",
+    "author": "Matthew_Cash",
+    "license": "AGPL-3.0-only",
+    "main": "src/main.ts",
+    "scripts": {
+        "start": "ts-node src/main.ts",
+        "dev": "ts-node-dev src/main.ts"
+    },
+    "dependencies": {
+        "@types/ws": "^8.5.1",
+        "tiny-typed-emitter": "^2.1.0",
+        "ts-node": "^10.5.0",
+        "typescript": "^4.5.5",
+        "ws": "^8.5.0"
+    },
+    "devDependencies": {
+        "ts-node-dev": "^1.1.8"
+    }
+}

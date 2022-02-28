@@ -1,0 +1,130 @@
+import WebSocket from 'ws';
+import {
+    ControllerDeviceUpdate,
+    ControllerDeviceUpdateRequest,
+    devices,
+    updateDevice
+} from './main';
+
+let ws: WebSocket.Server;
+let clients: DeviceClient[];
+
+interface SocketStatus {
+    alive?: boolean;
+    authorized?: boolean;
+}
+
+interface DeviceClient extends WebSocket {
+    state: SocketStatus;
+    watchingIds: string[];
+}
+
+export const startWebSocketServer = () => {
+    const host = process.env.HOST || '0.0.0.0';
+    const port = Number(process.env.PORT) || 3002;
+
+    ws = new WebSocket.Server({ host, port });
+    clients = ws.clients as unknown as DeviceClient[];
+
+    ws.on('connection', async (client: DeviceClient, req) => {
+        client.state = {
+            alive: true,
+            authorized: false
+        };
+        client.watchingIds = [];
+
+        client.send(JSON.stringify({ state: client.state }));
+
+        client.on('pong', () => (client.state.alive = true));
+
+        client.on('message', data => onMessage(data, client));
+
+        // if (client.state?.authorized) onAuthorized(client);
+    });
+
+    console.log(`[Ready] WebSocket Server Listening on ws://${host}:${port}`);
+};
+
+interface OutboundSocketMessage {
+    commands?: {
+        controllerDeviceUpdate: ControllerDeviceUpdate;
+    }[];
+    connection?: {
+        ping?: true;
+    };
+}
+
+interface InboundSocketMessage {
+    commands?: {
+        controllerDeviceUpdateRequest: ControllerDeviceUpdateRequest;
+        watchDeviceIds: string[];
+    }[];
+    connection?: {
+        pong?: true;
+    };
+}
+
+const onMessage = async (message: WebSocket.Data, client: DeviceClient) => {
+    let data: InboundSocketMessage;
+
+    try {
+        data = JSON.parse(message.toString());
+    } catch {
+        return client.send('Invalid JSON');
+    }
+
+    if (data?.connection?.pong === true) {
+        client.state.alive = true;
+    }
+
+    data?.commands?.forEach(command => {
+        if (command?.controllerDeviceUpdateRequest) {
+            updateDevice(command?.controllerDeviceUpdateRequest);
+        }
+
+        if (command?.watchDeviceIds) {
+            client.watchingIds.push(...command?.watchDeviceIds);
+
+            const simpleRequiredDevices = [...devices.values()]
+                .map(({ id, status }) => ({ id, status }))
+                .filter(device => device.status.state !== null)
+                .filter(device => command?.watchDeviceIds.includes(device.id));
+
+            simpleRequiredDevices.forEach(device => {
+                const controllerDeviceUpdate: ControllerDeviceUpdate = {
+                    id: device.id,
+                    status: device.status
+                };
+
+                notifyClients(controllerDeviceUpdate);
+            });
+        }
+    });
+};
+
+export const notifyClients = (update: ControllerDeviceUpdate) => {
+    clients?.forEach(client => {
+        if (!client.watchingIds.includes(update.id)) return;
+
+        client.send(
+            JSON.stringify({
+                commands: [
+                    {
+                        controllerDeviceUpdate: update
+                    }
+                ]
+            })
+        );
+    });
+};
+
+setInterval(() => {
+    clients?.forEach(client => {
+        if (!client.state.alive) return client.close();
+
+        client.state.alive = false;
+
+        client.send(JSON.stringify({ connection: { ping: true } }));
+        client.ping();
+    });
+}, 3000);
