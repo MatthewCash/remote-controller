@@ -29,7 +29,9 @@ export class Device extends TypedEmitter<DeviceEvents> {
 
         this.status = {
             online: false,
-            state: false,
+            state: {
+                power: false
+            },
             changingTo: null
         };
     }
@@ -39,7 +41,9 @@ export class Device extends TypedEmitter<DeviceEvents> {
     }
 
     async setState(requestedState: DeviceStatus['state']): Promise<boolean> {
-        const onOff = requestedState ? 'on' : 'off';
+        if (requestedState?.power == null) return;
+
+        const onOff = requestedState?.power ? 'on' : 'off';
 
         const error = await new Promise<ExecException>(r =>
             exec(
@@ -63,14 +67,16 @@ export class Device extends TypedEmitter<DeviceEvents> {
     }
 
     private async pollState() {
-        const newState = await this.queryState();
+        const powerState = await this.queryState();
 
-        if (newState === this.status?.state) return;
+        if (powerState === this.status?.state?.power) return;
 
         this.status = {
             changingTo: null,
             online: true,
-            state: newState
+            state: {
+                power: powerState
+            }
         };
 
         const update = {
