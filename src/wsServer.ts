@@ -1,10 +1,14 @@
 import WebSocket from 'ws';
+
 import {
     ControllerDeviceUpdate,
     ControllerDeviceUpdateRequest,
     devices,
     updateDevice
 } from './main';
+import config from '../config.json';
+
+const tokens = config?.tokens;
 
 let ws: WebSocket.Server;
 let clients: DeviceClient[];
@@ -33,13 +37,19 @@ export const startWebSocketServer = () => {
         };
         client.watchingIds = [];
 
-        client.send(JSON.stringify({ state: client.state }));
+        client.send(
+            JSON.stringify({
+                connection: {
+                    auth: {
+                        token: tokens.provide
+                    }
+                }
+            })
+        );
 
         client.on('pong', () => (client.state.alive = true));
 
         client.on('message', data => onMessage(data, client));
-
-        // if (client.state?.authorized) onAuthorized(client);
     });
 
     console.log(`[Ready] WebSocket Server Listening on ws://${host}:${port}`);
@@ -50,8 +60,13 @@ interface OutboundSocketMessage {
         controllerDeviceUpdate: ControllerDeviceUpdate;
     }[];
     connection?: {
-        ping?: true;
+        pong?: true;
+        auth?: {
+            authorized?: boolean;
+            token?: string;
+        };
     };
+    errors?: any[];
 }
 
 interface InboundSocketMessage {
@@ -61,7 +76,12 @@ interface InboundSocketMessage {
     }[];
     connection?: {
         pong?: true;
+        auth?: {
+            authorized?: boolean;
+            token?: string;
+        };
     };
+    errors?: any[];
 }
 
 const onMessage = async (message: WebSocket.Data, client: DeviceClient) => {
@@ -75,6 +95,49 @@ const onMessage = async (message: WebSocket.Data, client: DeviceClient) => {
 
     if (data?.connection?.pong === true) {
         client.state.alive = true;
+    }
+
+    // Check if remote's authorization token is provided
+    if (data?.connection?.auth?.token) {
+        client.state.authorized = data.connection.auth.token === tokens.verify;
+
+        if (client.state.authorized) {
+            client.send(
+                JSON.stringify({
+                    connection: {
+                        auth: {
+                            authorized: true
+                        }
+                    }
+                })
+            );
+        }
+    }
+
+    // Send our authorization token if requested
+    if (data?.connection?.auth?.authorized === false) {
+        client.send(
+            JSON.stringify({
+                connection: {
+                    auth: {
+                        token: tokens.provide
+                    }
+                }
+            })
+        );
+    }
+
+    // Return if not authorized
+    if (client.state.authorized === false) {
+        return client.send(
+            JSON.stringify({
+                connection: {
+                    auth: {
+                        authorized: false
+                    }
+                }
+            })
+        );
     }
 
     data?.commands?.forEach(command => {
